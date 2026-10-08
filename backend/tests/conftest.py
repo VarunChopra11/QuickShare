@@ -1,19 +1,31 @@
 import pytest
-import asyncio
-import fakeredis.aioredis
-import app.storage as storage_module
+from pathlib import Path
+from fastapi.testclient import TestClient
+
+from app.config import settings
+from app.database import init_db
+from app.main import app
+from app.rate_limit import rate_limiter
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+@pytest.fixture(autouse=True)
+def setup_test_env(tmp_path: Path):
+    """Isolate database and upload directory for each test run."""
+    test_db = tmp_path / "test_quickshare.db"
+    test_uploads = tmp_path / "test_uploads"
+    test_uploads.mkdir(parents=True, exist_ok=True)
 
+    # Override settings for testing
+    settings.DATA_DIR = tmp_path
+    settings.DATABASE_PATH = test_db
+    settings.UPLOAD_DIR = test_uploads
+    settings.EXPIRY_MINUTES = 10
 
-@pytest.fixture
-async def fake_redis():
-    server = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    storage_module._redis_client = server
-    yield server
-    await server.aclose()
+    # Reset rate limiter state between tests
+    with rate_limiter._lock:
+        rate_limiter._lookup_requests.clear()
+        rate_limiter._create_requests.clear()
+        rate_limiter._failed_attempts.clear()
+
+    init_db(test_db)
+    yield
