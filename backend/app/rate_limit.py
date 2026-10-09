@@ -118,14 +118,21 @@ rate_limiter = RateLimiter()
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract client IP safely from request headers or direct client."""
-    # Check X-Forwarded-For if behind reverse proxy
+    """Extract client IP safely from Cloudflare header, proxy headers, or direct client."""
+    # 1. Cloudflare verified client IP (tamper-proof from Cloudflare edge)
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip and cf_ip.strip():
+        return cf_ip.strip()
+
+    # 2. Standard reverse proxy header
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
-        # Take the first IP
         parts = [p.strip() for p in forwarded.split(",")]
         if parts:
             return parts[0]
+
+    # 3. Direct socket connection
     if request.client and request.client.host:
         return request.client.host
     return "127.0.0.1"
+
